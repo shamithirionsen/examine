@@ -1,0 +1,13 @@
+[project]
+name = "examine"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mylib",
+    "polars>=2.0.0",
+]
+
+[tool.uv.sources]
+mylib = { path = "../mylib", editable = true }
