@@ -17,15 +17,15 @@ from mylib.viz.projection import project_2d
 
 
 RUNS: list[tuple[str, dict[str, Any]]] = [
-    ("kmeans", {"n_clusters": 5, "seed": 42}),
-    ("hdbscan", {"min_cluster_size": 5}),
+    *[("kmeans", {"n_clusters": n, "seed": 42}) for n in (5, 10, 15, 20)],
     ("hnne", {}),
+    ("hdbscan", {"min_cluster_size": 5}),
 ]
 
 
 def _id_column(df: pl.DataFrame, source: str) -> str:
     """Return the supported identifier column used by a data source."""
-    for column in ("post_id", "instance_id"):
+    for column in ("post_id", "instance_id", "bio_id"):
         if column in df.columns:
             return column
     raise click.ClickException(
@@ -36,13 +36,13 @@ def _id_column(df: pl.DataFrame, source: str) -> str:
 
 
 @click.command()
-@click.option("--embeddings_path", type=click.Path(exists=True, path_type=Path),
-              default=Path("../data/synthetic_bio/embeddings/embeddings.parquet"),
-              help="Path to the Parquet file containing embeddings.")
+@click.option("--embeddings_path", type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+              default=Path("../data/synthetic_bio/embeddings"),
+              help="Path to an embedding Parquet file or directory.")
 @click.option("--data_path",
-              type=click.Path(exists=True, file_okay=True, path_type=Path),
-              default=Path("../data/synthetic_bio/raw/synthetic_twitter_author_bios_200.csv"),
-              help="Path to the input data."
+              type=click.Path(exists=True, file_okay=True, dir_okay=True, path_type=Path),
+              default=Path("../data/synthetic_bio/raw"),
+              help="Path to an input CSV file or directory of versioned CSV files."
 )
 @click.option("--clusters_dir",
               type=click.Path(path_type=Path),
@@ -78,69 +78,96 @@ def main(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Pa
         None. Tables and maps are written under ``viz_dir``.
     """
 
-    name = "synthetic_bio"
-    if only and only != name:
-        print(f"skipping {name}")
-        return
-
-    emb_df = pl.read_parquet(embeddings_path)
-    data_df = pl.read_csv(data_path)
-    if "embedding" not in emb_df.columns:
-        raise click.ClickException(
-            f"Embeddings must contain an 'embedding' column; found {emb_df.columns}"
-        )
-    if "authorbioDescription" not in data_df.columns:
-        raise click.ClickException(
-            "Input data must contain an 'authorbioDescription' column"
-        )
-    embedding_id = _id_column(emb_df, "Embeddings")
-    data_id = _id_column(data_df, "Input data")
-
-    if max_rows:
-        emb_df = emb_df.head(max_rows)
-    ids = emb_df[embedding_id].rename("id")
-    coords = project_2d(
-        to_matrix(emb_df, "embedding"),
-        cache=viz_dir / "umap" / f"{name}{'_sub' if max_rows else ''}.npy",
+    embedding_files = (
+        [embeddings_path]
+        if embeddings_path.is_file()
+        else sorted(embeddings_path.rglob("*.parquet"))
     )
-    text_df = data_df.select(
-        pl.col(data_id).alias("id"),
-        pl.col("authorbioDescription").fill_null(""),
-    )
-    out = viz_dir / "bio" / name
-    out.mkdir(parents=True, exist_ok=True)
+    if not embedding_files:
+        raise click.ClickException(f"No Parquet embedding files found in {embeddings_path}")
 
-    for method, params in RUNS:
-        labels_file = labels_path(clusters_dir, name, method, params)
-        if not labels_file.exists():
-            print(f"missing: {labels_file}")
+    for embedding_file in embedding_files:
+        emb_df = pl.read_parquet(embedding_file)
+        if "embedding" not in emb_df.columns:
+            raise click.ClickException(
+                f"Embeddings must contain an 'embedding' column; found {emb_df.columns}"
+            )
+        embedding_id = _id_column(emb_df, "Embeddings")
+        name = (
+            embedding_file.relative_to(embeddings_path).with_suffix("")
+            if embeddings_path.is_dir()
+            else embedding_file.with_suffix("")
+        )
+        name_text = name.as_posix()
+        if only and only != name_text:
+            print(f"skipping {name_text}")
             continue
 
-        labels_df = pl.read_parquet(labels_file)
-        table = (
-            pl.DataFrame({"id": ids})
-            .join(text_df, on="id", how="left")
-            .join(labels_df, on="id", how="left")
-            .with_columns(pl.col("cluster").fill_null(-1))
+        data_file = (
+            data_path
+            if data_path.is_file()
+            else data_path / f"{embedding_file.stem}.csv"
         )
-        if table["cluster"].null_count():
-            raise click.ClickException(f"No cluster label found for some rows in {labels_file}")
-        if fmt == "parquet":
-            table.write_parquet(out / f"{method}_clusters.parquet")
-        elif fmt == "csv":
-            table.write_csv(out / f"{method}_clusters.csv")
-        else:
-            table.write_ndjson(out / f"{method}_clusters.json")
+        if not data_file.exists():
+            raise click.ClickException(
+                f"No matching raw data file found for {embedding_file}: {data_file}"
+            )
+        data_df = pl.read_csv(data_file)
+        if "bio_description" not in data_df.columns:
+            raise click.ClickException(
+                f"Input data must contain a 'bio_description' column; found {data_df.columns}"
+            )
+        data_id = _id_column(data_df, "Input data")
+        text_df = data_df.select(
+            pl.col(data_id).alias("id"),
+            pl.col("bio_description").fill_null(""),
+        )
 
-        labels: np.ndarray = table["cluster"].to_numpy()
-        hover: list[str] = table["authorbioDescription"].cast(pl.String).to_list()
-        plot_scatter(
-            coords,
-            labels,
-            hover=[text[:200] for text in hover],
-            title=f"{name} / bio / {method}",
-        ).write_html(out / f"{method}_map.html")
-        print(f"{name} / bio / {method}: done ({(labels == -1).mean():.1%} noise)")
+        if max_rows:
+            emb_df = emb_df.head(max_rows)
+        ids = emb_df[embedding_id].rename("id")
+        coords = project_2d(
+            to_matrix(emb_df, "embedding"),
+            cache=viz_dir / "umap" / f"{name_text}{'_sub' if max_rows else ''}.npy",
+        )
+        tables_out = viz_dir / "tables" / "bio" / name
+        maps_out = viz_dir / "maps" / "bio" / name
+        tables_out.mkdir(parents=True, exist_ok=True)
+        maps_out.mkdir(parents=True, exist_ok=True)
+
+        for method, params in RUNS:
+            labels_file = labels_path(clusters_dir, name_text, method, params)
+            if not labels_file.exists():
+                print(f"missing: {labels_file}")
+                continue
+
+            labels_df = pl.read_parquet(labels_file)
+            table = (
+                pl.DataFrame({"id": ids})
+                .join(text_df, on="id", how="left")
+                .join(labels_df, on="id", how="left")
+                .with_columns(pl.col("cluster").fill_null(-1))
+            )
+            if table["cluster"].null_count():
+                raise click.ClickException(f"No cluster label found for some rows in {labels_file}")
+            run_slug = "_".join(f"{key}{value}" for key, value in sorted(params.items()))
+            run_name = f"{method}_{run_slug}" if run_slug else method
+            if fmt == "parquet":
+                table.write_parquet(tables_out / f"{run_name}_clusters.parquet")
+            elif fmt == "csv":
+                table.write_csv(tables_out / f"{run_name}_clusters.csv")
+            else:
+                table.write_ndjson(tables_out / f"{run_name}_clusters.json")
+
+            labels: np.ndarray = table["cluster"].to_numpy()
+            hover: list[str] = table["bio_description"].cast(pl.String).to_list()
+            plot_scatter(
+                coords,
+                labels,
+                hover=[text[:200] for text in hover],
+                title=f"{name_text} / bio / {run_name}",
+            ).write_html(maps_out / f"{run_name}_map.html")
+            print(f"{name_text} / bio / {run_name}: done ({(labels == -1).mean():.1%} noise)")
 
 
 if __name__ == "__main__":
