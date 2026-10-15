@@ -9,6 +9,7 @@ dependencies = [
     "mylib",
     "polars>=2.0.0",
     "regex>=2026.9.29",
+    "umap-learn>=0.5.12",
 ]
 
 [tool.uv.sources]
