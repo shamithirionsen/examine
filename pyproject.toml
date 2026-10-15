@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "emoji>=2.16.0",
+    "kaleido>=1.5.0",
     "mylib",
     "polars>=2.0.0",
     "regex>=2026.9.29",

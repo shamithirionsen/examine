@@ -54,7 +54,7 @@ def run(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Pat
             None. Tables and maps are written under ``viz_dir``.
         """
     if show:
-        pio.renderers.default = "notebook_connected"
+        pio.renderers.default = "notebook_connected+png" # show
     embedding_files = (
         [embeddings_path]
         if embeddings_path.is_file()
@@ -153,7 +153,7 @@ def run(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Pat
                 title=f"{name_text} / bio / {run_name}",
             )
             if show:
-                fig.show(renderer="notebook_connected")
+                fig.show(renderer="notebook_connected+png")
             fig.write_html(maps_out / f"{run_name}_map.html")
             print(f"{name_text} / bio / {run_name}: done ({(labels == -1).mean():.1%} noise)")
 
