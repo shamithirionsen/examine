@@ -16,19 +16,23 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 load_dotenv()  # Load environment variables from .env file
-DEFAULT_DATA_PATH = "../data/synthetic_bio/raw/synthetic_twitter_bios_300.csv" # raw/synthetic_twitter_bios_200.csv"
+# DEFAULT_DATA_PATH = "../data/synthetic_bio/raw/synthetic_twitter_bios_300.csv" # raw/synthetic_twitter_bios_200.csv"
+DEFAULT_DATA_FOLDER = "../data/synthetic_bio/processed"
 MODEL =  "Qwen/Qwen3-Embedding-0.6B"  # "BAAI/bge-m3" # 2 for now, think of a dictionary for later
 
 
 @click.command()
-@click.option("--data_path", type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path), default=DEFAULT_DATA_PATH, help="Path to the input CSV file.")
+# @click.option("--data_path", type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path), default=DEFAULT_DATA_PATH, help="Path to the input CSV file.")
+@click.option("--data_folder", type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path), default=DEFAULT_DATA_FOLDER, help="Path to the input CSV file or directory of CSV files.")
 @click.option("--embeddings_dir", type=click.Path(path_type=Path), default=Path("../data/synthetic_bio/embeddings"), help="Directory to save the output files.")
 @click.option("--batch_size", default=128, help="Batch size for embedding requests.")
 @click.option("--workers", default=8, help="Number of worker threads for concurrent embedding requests.")
-def main(data_path: str, embeddings_dir: Path, batch_size: int, workers: int) -> None:
+def main(data_folder: str, embeddings_dir: Path, batch_size: int, workers: int) -> None:
     """Read data file, embed the text values, and save the embeddings to a Parquet file."""
     # Read the input CSV file
-    df = pl.read_csv(data_path)
+    # df = pl.read_csv(data_path)
+    files = sorted(Path(data_folder).rglob("*.csv"))
+    print(f"Found {files} CSV files in {data_folder}."); exit(0)
     df = df.select(["bio_id", "bio_description"])  # Select only the relevant columns
 
     # print(df.head());breakpoint()  # Display the first few rows of the DataFrame for verification

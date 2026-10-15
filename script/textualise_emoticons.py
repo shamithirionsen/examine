@@ -18,20 +18,6 @@ import re
 import string
 
 
-def to_natural_text(emoticon: str, lang:str = "fr") -> str:
-    """Convert an emoticon to its natural language representation.
-
-    Args:
-        emoticon: The emoticon to convert.
-        lang: The language code for the natural language representation.
-
-    Returns:
-        The natural language representation of the emoticon.
-    """
-    # return emoji.demojize(emoticon, language=lang)
-    demojized: str = emoji.demojize(text, language=lang, delimiters=(" ", " "))
-    return " ".join(demojized.replace("_", " ").split())
-
 
 def demojize_text(text: str, lang: str = "fr") -> str:
     """Replace every emoji in `text` with its localized textual name.
@@ -81,7 +67,7 @@ def main(data_dir: Path, output_dir: Path) -> None:
             pl.col("bio_description").map_elements(
                 demojize_text,
                 return_dtype=pl.String,
-            ).alias("bio_description_processed")
+            ).alias("bio_description_demojized") # for parsing column names use startswith("bio_description") 
         )
         df = df.drop("bio_description") # drop or keep ?
 
