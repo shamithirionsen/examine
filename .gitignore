@@ -10,4 +10,6 @@ wheels/
 .venv
 .venv/
 .ipynb_checkpoints/
-.env
+.env__pycache__/
+.DS_Store
+.venv/

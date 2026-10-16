@@ -10,7 +10,7 @@ from pathlib import Path
 import regex  # pip install regex; supports \p{Lu} / \p{Ll}
 from textualise_emoticons import demojize_text
 
-HASHTAG = regex.compile(r"#(\w+)")
+HASHTAG = regex.compile(r"#\s*(\w+)")
 CAMEL_LOWER_UPPER = regex.compile(r"(?<=[\p{Ll}\d])(?=\p{Lu})") # lower/digit -> Upper boundary, e.g. "StandWith" -> "Stand With"
 CAMEL_ACRONYM = regex.compile(r"(?<=\p{Lu})(?=\p{Lu}\p{Ll})") # acronym -> Word boundary, e.g. "USAToday" -> "USA Today"
 
@@ -58,6 +58,20 @@ def split_hashtag_camel(text: str) -> str:
 
     return HASHTAG.sub(_split, text)
 
+def remove_hashtags(text: str) -> str:
+    """Remove hashtags from the text.
+
+    Args:
+        text: Input text containing hashtags.
+    Returns:
+        Text with hashtags removed.
+    """
+    # print(
+    #     f"Removing hashtags from: {text} check: {text.replace('#', '').strip()}",
+    #     flush=True,
+    # )
+    return text.replace("#", "").strip()  # Remove '#' and strip whitespace
+
 
 @click.command()
 @click.option("--data-dir", default="../data/synthetic_bio/raw", type=click.Path(exists=True, file_okay=False, path_type=Path), required=True)
@@ -65,9 +79,11 @@ def split_hashtag_camel(text: str) -> str:
 @click.option("--output-dir-camel", default="../data/synthetic_bio/processed/camel", type=click.Path(path_type=Path), required=True)
 @click.option("--output-dir-hashtag-camel", default="../data/synthetic_bio/processed/hashtag_camel", type=click.Path(path_type=Path), required=True)
 @click.option("--output-dir-hashtag-camel-demotized", default="../data/synthetic_bio/processed/hashtag_camel_demotized", type=click.Path(path_type=Path), required=True)
+@click.option("--output-dir-no-hashtags", default="../data/synthetic_bio/processed/no_hashtags", type=click.Path(path_type=Path), required=True)
 
 def main(data_dir: Path, output_dir_hashtag: Path, output_dir_camel: Path, 
-         output_dir_hashtag_camel: Path, output_dir_hashtag_camel_demotized: Path) -> None:
+         output_dir_hashtag_camel: Path, output_dir_hashtag_camel_demotized: Path,
+         output_dir_no_hashtags: Path) -> None:
     """Process CSV files in the specified directory to separate hashtags into a new column and save the processed files to a new directory.
 
     Args:
@@ -83,6 +99,7 @@ def main(data_dir: Path, output_dir_hashtag: Path, output_dir_camel: Path,
     output_dir_camel.mkdir(parents=True, exist_ok=True)
     output_dir_hashtag_camel.mkdir(parents=True, exist_ok=True)
     output_dir_hashtag_camel_demotized.mkdir(parents=True, exist_ok=True)
+    output_dir_no_hashtags.mkdir(parents=True, exist_ok=True)
 
     for csv_file in data_dir.rglob("*.csv"):
         df = pl.read_csv(csv_file)
@@ -128,9 +145,23 @@ def main(data_dir: Path, output_dir_hashtag: Path, output_dir_camel: Path,
                 lambda x: demojize_text(x), return_dtype=pl.Utf8
             ).alias("bio_description_hashtag_camel_demotized")
         )
-        df_hashtag_camel_demotized = df_hashtag_camel.drop("bio_description_hashtag_camel_split") # drop or keep ?
+
+        
+        df_hashtag_camel_demotized = df_hashtag_camel_demotized.drop("bio_description_hashtag_camel_split") # drop or keep ?
         output_file = output_dir_hashtag_camel_demotized / csv_file.name
         df_hashtag_camel_demotized.write_csv(output_file)
+        click.echo(f"Processed file saved to {output_file}")
+
+
+        # remove hastags from final version
+        df_no_hashtags = df_hashtag_camel_demotized.with_columns(
+            pl.col("bio_description_hashtag_camel_demotized").map_elements(
+                remove_hashtags, return_dtype=pl.Utf8
+            ).alias("bio_description_no_hashtags")
+        )
+        df_no_hashtags = df_no_hashtags.drop("bio_description_hashtag_camel_demotized") # drop or keep ?
+        output_file = output_dir_no_hashtags / csv_file.name
+        df_no_hashtags.write_csv(output_file)
         click.echo(f"Processed file saved to {output_file}")
 
 

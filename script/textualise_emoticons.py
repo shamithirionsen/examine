@@ -12,11 +12,8 @@ from email.mime import text
 import click
 import polars as pl
 from pathlib import Path
-import unicodedata
 import emoji
 import re 
-import string
-
 
 
 def demojize_text(text: str, lang: str = "fr") -> str:

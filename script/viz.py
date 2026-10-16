@@ -24,7 +24,6 @@ RUNS: list[tuple[str, dict[str, Any]]] = [
     ("hdbscan", {"min_cluster_size": 5}),
 ]
 
-
 def _id_column(df: pl.DataFrame, source: str) -> str:
     """Return the supported identifier column used by a data source."""
     for column in ("post_id", "instance_id", "bio_id"):
@@ -35,9 +34,21 @@ def _id_column(df: pl.DataFrame, source: str) -> str:
         f"found {df.columns}"
     )
 
+
+def _text_column(df: pl.DataFrame, source: Path) -> str:
+    """Return the canonical or versioned bio description column."""
+    if "bio_description" in df.columns:
+        return "bio_description"
+    candidates = [column for column in df.columns if column.startswith("bio_description_")]
+    if len(candidates) == 1:
+        return candidates[0]
+    raise click.ClickException(
+        f"{source} must contain one bio_description column; found {candidates}"
+    )
+
 def run(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Path,
         fmt: str = "parquet", only: str | None = None, max_rows: int | None = None,
-        show: bool = False) -> None:
+        show: bool = False, version: str = "raw") -> None:
     """
         Save clusters with their content, and draw a map of each clustering.
     
@@ -53,8 +64,8 @@ def run(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Pat
         Returns:
             None. Tables and maps are written under ``viz_dir``.
         """
-    # if show:
-        # fig.show()
+    version_label = version.replace("__", " + ").replace("_", " ")
+
     embedding_files = (
         [embeddings_path]
         if embeddings_path.is_file()
@@ -90,14 +101,11 @@ def run(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Pat
                 f"No matching raw data file found for {embedding_file}: {data_file}"
             )
         data_df = pl.read_csv(data_file)
-        if "bio_description" not in data_df.columns:
-            raise click.ClickException(
-                f"Input data must contain a 'bio_description' column; found {data_df.columns}"
-            )
+        text_column = _text_column(data_df, data_file)
         data_id = _id_column(data_df, "Input data")
         text_df = data_df.select(
             pl.col(data_id).alias("id"),
-            pl.col("bio_description").fill_null(""),
+            pl.col(text_column).fill_null("").alias("bio_description"),
         )
 
         if max_rows:
@@ -138,19 +146,11 @@ def run(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Pat
 
             labels: np.ndarray = table["cluster"].to_numpy()
             hover: list[str] = table["bio_description"].cast(pl.String).to_list()
-            # plot_scatter(
-            #     coords,
-            #     labels,
-            #     hover=[text[:200] for text in hover],
-            #     title=f"{name_text} / bio / {run_name}",
-            # ).write_html(maps_out / f"{run_name}_map.html")
-
-            # visualise the plot for a ipynb notebook
             fig = plot_scatter(
                 coords,
                 labels,
                 hover=[text[:200] for text in hover],
-                title=f"{name_text} / bio / {run_name}",
+                title=f"{version_label} |{name_text} / bio / {run_name}",
             )
             if show:
                 fig.show()
@@ -182,8 +182,9 @@ def run(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Pat
 @click.option("--only", type=str, help="Restrict to one corpus key.")
 @click.option("--max_rows", type=int, help="Optional row cap for quick tests.")
 @click.option("--show/--no-show", default=False, help="Display figures inline (notebooks).")
+@click.option("--version", type=str, default="raw", help="Version name.")
 def main(embeddings_path : Path, data_path: Path, clusters_dir: Path, viz_dir: Path, 
-         fmt: str, only: str | None, max_rows: int | None, show: bool):
+         fmt: str, only: str | None, max_rows: int | None, show: bool, version: str) -> None:
     
 # def main(embeddings_path: Path, data_path: Path, clusters_dir: Path, viz_dir: Path,
         #  fmt: str, only: str | None, max_rows: int | None) -> None:
@@ -202,7 +203,7 @@ def main(embeddings_path : Path, data_path: Path, clusters_dir: Path, viz_dir: P
     Returns:
         None. Tables and maps are written under ``viz_dir``.
     """
-    run(embeddings_path, data_path, clusters_dir, viz_dir, fmt, only, max_rows, show)
+    run(embeddings_path, data_path, clusters_dir, viz_dir, fmt, only, max_rows, show, version)
 
     # embedding_files = (
     #     [embeddings_path]
